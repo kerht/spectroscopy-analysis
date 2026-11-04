@@ -1,0 +1,5 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Example data must keep their exact bytes (CRLF, cp1252): no conversion
+examples/data/** -text

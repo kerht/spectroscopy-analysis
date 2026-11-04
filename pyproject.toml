@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectroscopy-analysis"
+version = "2.0.0"
+description = "Load, process, fit and plot spectroscopic data: Raman, PL, TRPL, absorption, XPS"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "matplotlib>=3.9",
+    "lmfit>=1.3.3",
+    "lmfitxps>=4.1.2",
+    "vamas>=0.2.0",
+    "uncertainties>=3.2.3",
+    "natsort>=8.4",
+    "termcolor>=2.1",
+    "openpyxl>=3.1",        # pandas.read_excel (lab register)
+    "numdifftools>=0.9",    # uncertainties of Nelder-Mead fits (LOPC)
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

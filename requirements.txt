@@ -1,0 +1,14 @@
+# Same packages as pyproject.toml. Usually you only need:
+#     pip install -e .            (or  pip install -e ".[test]"  for the tests)
+numpy>=1.26
+scipy>=1.13
+pandas>=2.2
+matplotlib>=3.9
+lmfit>=1.3.3
+lmfitxps>=4.1.2
+vamas>=0.2.0
+uncertainties>=3.2.3
+natsort>=8.4
+termcolor>=2.1
+openpyxl>=3.1      # pandas.read_excel (lab register)
+numdifftools>=0.9  # uncertainties of Nelder-Mead fits (LOPC)
