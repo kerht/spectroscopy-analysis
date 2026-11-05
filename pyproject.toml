@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "spectroscopy-analysis"
 dynamic = ["version"]          # read from spectroscopy_analysis.__version__
+authors = [
+    { name = "Gianmarco Laurella" },
+]
 description = "Load, process, fit and plot spectroscopic data: Raman, PL, TRPL, absorption, XPS"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -35,3 +38,6 @@ version = {attr = "spectroscopy_analysis.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Repository = "https://github.com/kerht/spectroscopy-analysis"
