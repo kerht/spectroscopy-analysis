@@ -92,6 +92,7 @@ plt.show()
 | `units` | `cmtoev`, `cmtonm`, `evtocm`, `evtonm`, `nmtoev`, `nmtocm` |
 | `models` | lmfit model classes: `gauss`, `lorentz`, `voigt`, `baseline_line`, `baseline_poly`, `constant`, `exp`; `as_model` |
 | `style` | colour/marker cycles and `apply_style()` |
+| `metadata` | standard metadata: register columns found by name, file-name patterns (see *Metadata*) |
 | `data` | `Data`: one spectrum, with the methods of every technique |
 | `project` | `Project`: a collection of measurements, with the loaders |
 | `io` | loader methods of `Project` (`open_data`, `open_folder`, `open_pl`, `open_abs`, `open_file`, …) |
@@ -138,13 +139,49 @@ proj.open_file('odd.txt', header_lines=3, decimal=',', x_unit='nm')   # correct 
 
 Units and axis labels are read from the file (column names such as `Raman shift (cm-1)` or `Wavelength [nm]`, a units row, a `# Columns: ...` comment, or `XUNITS`/`YUNITS` header keys) and used by `Data.plot`. Points keep the order of the file (`sort=True` sorts by increasing x), missing values are dropped and no dark subtraction is applied.
 
+## Metadata
+
+Every `Data` has two views of its metadata:
+
+- `d.info`: the original metadata, unchanged (the register row, the fields of the TRPL file name, the file header);
+- `d.meta`: the same with **standard keys** and numbers converted: `sample`, `meas_type`, `instrument`, `ecc` (laser, nm), `n`, `wafer`, `position`, `t_start`, `t_stop`, `g_width`, `source`. A missing field is `None`.
+
+The attributes `d.sample`, `d.ecc`, `d.n`, `d.ndfilt`, … are still filled as before.
+
+**Register columns are found by name**, not by position: case, spaces, line breaks and units in brackets are ignored (`Ecc (nm)`, `ECC\n(nm)` and `Laser [nm]` are all the laser). Columns can be added, moved or renamed. The names that are recognised are in `sa.metadata.REGISTER_ALIASES`; add yours:
+
+```python
+sa.metadata.REGISTER_ALIASES['ecc'].append('Laser line')
+sa.metadata.REGISTER_ALIASES['sample'].append('Specimen')
+```
+
+The register row is the one whose `N` equals the measurement number, so rows can be in any order. A register with a type column (`Type`, `Meas type`) sets `meas_type`; otherwise a filter column (`ND FILT`) means LabRAM Raman and a resolution column (`RES`) FT-Raman.
+
+**TRPL file names are read with a regular expression** with named groups, `sa.metadata.TRPL_PATTERN`. For another naming scheme, pass `pattern=` or change the default:
+
+```python
+pattern = r'(?P<wafer>[^-]+)-(?P<samp>[^-]+)-(?P<t_start>\d+)-(?P<t_stop>\d+)-G(?P<g_width>\d+)'
+proj.open_pl('trpl', 'W1-P#1-100-160-G1', pattern=pattern)
+proj.open_folder('trpl', meas_type='trpl', pattern=pattern)   # needs wafer, samp, g_width
+```
+
+A name that doesn't match gives a warning, not wrong fields.
+
+**Any field can be given or corrected when loading**, so the register and the naming scheme are optional:
+
+```python
+proj.open_data('261001', 7, meta={'meas_type': 'PL'})               # PL measured on the LabRAM
+proj.open_folder('261001', meta={'ecc': 325})                         # laser missing in the register
+proj.open_pl('trpl', 'decay', meta={'t_start': 100, 't_stop': 160, 'g_width': 1})
+```
+
 ## Data folder and file conventions
 
-The lab loaders rely on these names.
+The lab loaders rely on these names by default; *Metadata* above explains how to use others.
 
 **Raman / PL (LabRAM)** — `open_data`, `open_folder(meas_type='Raman')`
 - Folder name starts with the date, optionally followed by a space and a name: `231212` or `231212 user`.
-- The folder contains the measurement register `reg_mis_<date>.xlsx` with a column `N` (measurement number). See `examples/data/261001/`.
+- The folder contains the measurement register `reg_mis_<date>.xlsx` with a measurement-number column (`N`, `No`, `Number`, …). Other columns are found by name (see *Metadata*). See `examples/data/261001/`.
 - Each measurement is `<date><NN>.txt` (e.g. `23121230.txt`), next to the original file from the instrument: `.l6s` (spectrum), `.l6m` (map) or `.0`. Only the existence of the original file is checked, to choose between spectrum and map.
 
 **TRPL** — `open_pl`, `open_folder(meas_type='trpl')`
