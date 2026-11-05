@@ -10,6 +10,7 @@ from .pl import DataPLMixin
 from .trpl import DataTRPLMixin
 from .fitting import DataFitMixin
 from .plotting import DataPlotMixin
+from . import metadata
 
 
 class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMixin):
@@ -22,9 +23,13 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
         Current data (may be shifted or dark-subtracted).
     x_raw, y_raw : array
         Data as loaded.
-    info : pandas Series
-        Metadata: lab-register row (Raman), parsed file name (TRPL) or file
-        header (absorption).
+    info : pandas Series or None
+        Original metadata: lab-register row (Raman), parsed file name (TRPL)
+        or file header (absorption).
+    meta : dict
+        The same metadata with standard keys ('sample', 'meas_type', 'ecc',
+        't_start', ...), numbers converted; see
+        :mod:`spectroscopy_analysis.metadata`.
     meas_type : {'Raman', 'FT-Raman', 'trpl', 'absorption', 'generic', ...}
     type : {'data_raw', 'data', 'dark'}
         'data_raw' becomes 'data' after dark subtraction.
@@ -45,13 +50,17 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
     """
 
     def __init__(self, name, x, y, info, data, dark=False, color=None, label=None,
-                 meas_type=None, ecc=None):
+                 meas_type=None, ecc=None, meta=None):
         """Store the data, detect the measurement type from ``info`` and remove
         negative spikes.
 
-        The type is detected from ``info``: a lab-register row whose third column
-        is 'ND FILT' -> LabRAM Raman, 'RES' -> FT-Raman; a dict -> TRPL, or
-        absorption if it contains 'Absorbance'.
+        The metadata in ``info`` (a lab-register row, the TRPL dict from the
+        file name, or a header dict) are converted to standard fields in
+        ``self.meta`` (see :mod:`spectroscopy_analysis.metadata`). The type
+        comes from them: a register with a filter column ('ND FILT') -> LabRAM
+        Raman, with a resolution column ('RES') -> FT-Raman, or the register's
+        type column if it has one; TRPL dict -> 'trpl'; header with
+        'Absorbance' -> 'absorption'; otherwise 'generic'.
 
         Parameters
         ----------
@@ -60,6 +69,11 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
             instead of detecting it from ``info``.
         ecc : float, optional
             Laser wavelength (nm), needed for cm-1 <-> nm/eV conversions.
+        meta : dict, optional
+            Metadata fields to add or correct, with the standard names of
+            :mod:`spectroscopy_analysis.metadata` (e.g. ``{'meas_type': 'PL',
+            'sample': 'A', 'ecc': 325}``). They win over the fields read from
+            ``info``; ``meas_type`` and ``ecc`` win over ``meta``.
         """
 
         self.name = name
@@ -86,76 +100,59 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
         self.x_label = None
         self.y_label = None
 
-        # ---- Metadata from the lab register (Raman / FT-Raman)
-        if info is not None and type(info) != dict:
-            self.info = info
-            # the third column of the register identifies the instrument
-            if self.info.axes[0][2] == 'ND FILT':
-                self.n = info.iloc[0]
-                self.sample = info.iloc[1]
-                self.ndfilt = info.iloc[2] * 100
-                self.acqt = info.iloc[3]
-                self.acc = info.iloc[4]
-                self.det = info.iloc[5]
-                self.obj = info.iloc[6]
-                self.grat = info.iloc[7]
-                self.ecc = info.iloc[8]
-                self.hole = info.iloc[9]
-                self.range = info.iloc[10]
-                self.spectro = info.iloc[11]
-                self.notes = info.iloc[12]
-                self.meas_type = 'Raman'
+        # ---- Metadata
+        # self.info: the original metadata, as in version 1.0.0 (register row,
+        # or a Series built from the TRPL / header dict).
+        # self.meta: the same, with standard keys (see the metadata module).
+        from_frame = isinstance(info, pd.DataFrame)
+        if isinstance(info, dict):
+            info = (pd.DataFrame.from_dict(info, orient='index') if info
+                    else pd.DataFrame({0: pd.Series(dtype=object)}))
+        if isinstance(info, pd.DataFrame):
+            info = info[0]
+        self.info = info
 
-            elif self.info.axes[0][2] == 'RES':
-                self.n = info.iloc[0]
-                self.sample = info.iloc[1]
-                self.res = info.iloc[2]
-                self.range = info.iloc[3]
-                self.aper = info.iloc[4]
-                self.scan_t = info.iloc[5]
-                self.scan_v = info.iloc[6]
-                self.pow = info.iloc[7]
-                self.p_gain = info.iloc[8]
-                self.low_pass = info.iloc[9]
-                self.ph_res = info.iloc[10]
-                self.pos = info.iloc[11]
-                self.det = info.iloc[12]
-                self.meas_type = 'FT-Raman'
-
-        # if 'eV' in self.info:
-        #     self.meas_type = 'PL'
-
-        # else:
-        #     self.info = None
-            # print('Info = None')
-
-        # ---- Metadata as dict: TRPL (parsed file name) or absorption (header)
-        if type(info) == dict:
-            self.info = pd.DataFrame.from_dict(info, orient='index')
-            if 'wafer' in self.info[0]:
-                # self.name = self.info[0].wafer+'_'+self.info[0].samp
-                self.meas_type = 'trpl'
-            try:
-                if any(val in self.info[0].values for val in ['Absorbance', 'ABSORBANCE']):
-                    # if 'Absorbance' in self.info[0].values or 'ABSORBANCE' in self.info[0].values:
-                    self.meas_type = 'absorption'
-                    self.info[0].SAMPLE = self.info[0].Line_1
+        detected = metadata.standardize(info)
+        if detected.get('meas_type') == 'absorption':
+            try:                       # absorption: the first header line is the sample
+                self.info.SAMPLE = self.info.Line_1
             except Exception:
                 pass
-            self.info = self.info[0]
+        if from_frame and detected.get('meas_type') is None:
+            detected['meas_type'] = 'trpl'          # merged TRPL series
 
-        elif isinstance(info, pd.DataFrame):
-            self.meas_type = 'trpl'
-            self.info = self.info[0]
+        # register row: the fields become attributes (d.n, d.sample, d.ecc,
+        # d.ndfilt, ...) with the values of the register, as in version 1.0.0
+        if detected.get('source') == 'register':
+            where = metadata.register_columns(info.index)
+            for key, w in where.items():
+                if w is None or key == 'meas_type':
+                    continue
+                value = metadata.register_value(info, w)
+                if key == 'ndfilt':
+                    try:
+                        value = value * 100     # register fraction -> %
+                    except TypeError:
+                        pass
+                setattr(self, key, value)
+        elif detected.get('sample') is not None:
+            self.sample = detected['sample']
 
-        # ---- Explicit type / laser wavelength (e.g. from Project.open_file):
-        # they win over the detection above
+        # fields given by the user win over the detected ones
+        user = dict(meta or {})
         if meas_type is not None:
-            self.meas_type = meas_type
-        elif not hasattr(self, 'meas_type'):
-            self.meas_type = 'generic'      # nothing detected: avoid a crash below
+            user['meas_type'] = meas_type
         if ecc is not None:
-            self.ecc = ecc
+            user['ecc'] = ecc
+        self.meta = {**detected, **user}
+        if user:
+            self.meta['source'] = (detected.get('source', '') + '+user').lstrip('+')
+        for key, value in user.items():
+            if key in metadata.REGISTER_ALIASES and key != 'meas_type':
+                setattr(self, key, value)
+
+        self.meas_type = self.meta.get('meas_type') or 'generic'
+        self.meta['meas_type'] = self.meas_type
 
         self.x = self.x_raw
 
