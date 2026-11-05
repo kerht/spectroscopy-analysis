@@ -26,7 +26,7 @@ raman, pl, trpl, fitting, plotting, io
            the methods of Data and Project, grouped by technique
 xps        XPS depth profiles from VAMAS files
 """
-__version__ = '2.0.0'
+__version__ = '1.1.0'       # the only place of the version number (pyproject.toml reads it)
 
 from .constants import omega_TO, omega_LO, C, GAMMA, eps_inf, m_eff, eps_0
 # INT_LIMS is read from spectroscopy_analysis.constants when a method runs:

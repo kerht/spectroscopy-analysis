@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spectroscopy-analysis"
-version = "2.0.0"
+dynamic = ["version"]          # read from spectroscopy_analysis.__version__
 description = "Load, process, fit and plot spectroscopic data: Raman, PL, TRPL, absorption, XPS"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -29,6 +29,9 @@ test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "spectroscopy_analysis.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
