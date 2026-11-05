@@ -7,6 +7,7 @@ from termcolor import colored
 
 from .trpl import rescale_factor
 from .data import Data
+from . import metadata
 
 
 class ProjectIOMixin:
@@ -28,6 +29,9 @@ class ProjectIOMixin:
 
         Cleans the measurement-number column 'N' (keeps digits only, as int) and
         the column names, then stores the table in ``self.tables[date]``.
+        The number column is found by name (``metadata.REGISTER_ALIASES['n']``:
+        'N', 'No', 'Number', ...) and renamed 'N'; rows without a number
+        (empty or comment lines) are skipped with a warning.
 
         Returns
         -------
@@ -36,9 +40,22 @@ class ProjectIOMixin:
         """
         date = self.get_date(folder)
         table = pd.read_excel(folder + os.sep + 'reg_mis_%s.xlsx' % date)
+        # the measurement-number column, whatever its name -> 'N'
+        n_col = metadata.find_column(table.columns, metadata.REGISTER_ALIASES['n'])
+        if n_col is None:
+            raise KeyError(f"no measurement-number column in the register of "
+                           f"{folder} (looked for {metadata.REGISTER_ALIASES['n']})")
+        table = table.rename(columns={n_col: 'N'})
         # keep only the digits of the measurement number (e.g. 'N12' -> 12)
         table['N'] = table['N'].apply(
-            lambda x: ''.join(filter(str.isdigit, str(x))))
+            lambda x: ''.join(filter(str.isdigit, str(x).split('.')[0]))
+            if not pd.isna(x) else '')
+        empty = table['N'] == ''
+        if empty.any():
+            print(colored('Warning:', 'yellow', attrs=['bold']),
+                  f"{int(empty.sum())} register row(s) without a measurement "
+                  f"number skipped in {folder}")
+            table = table[~empty].reset_index(drop=True)
         # Converts elements of 'N' column to integer
         table['N'] = table['N'].astype(int)
         # clean column names: remove line breaks and replace the Symbol-font
@@ -51,7 +68,8 @@ class ProjectIOMixin:
 
         return table
 
-    def open_data(self, folder, number, dark=False, color=None, label=None):
+    def open_data(self, folder, number, dark=False, color=None, label=None,
+                  meta=None):
         """Load one Raman measurement by its number in the lab register.
 
         The data are read from the text export ``<date><NN>.txt``; the type of the
@@ -70,6 +88,16 @@ class ProjectIOMixin:
             measurement to load and subtract later.
         color, label : optional
             Plot color and legend label.
+        meta : dict, optional
+            Metadata to add or correct (standard names, see
+            :mod:`spectroscopy_analysis.metadata`), e.g.
+            ``{'meas_type': 'PL'}`` or ``{'ecc': 325}`` if the register
+            does not have it.
+
+        The register row is the one whose 'N' equals ``number`` (not the
+        row in position ``number``): rows can be in any order, and
+        measurements can be missing. If the number is not in the register,
+        the data are loaded without metadata (a warning is shown).
 
         Returns
         -------
@@ -79,21 +107,21 @@ class ProjectIOMixin:
         ls = sorted(os.listdir(folder))
         date = self.get_date(folder)
         table = self.open_table(folder)
-        # register row of this measurement (row N-1 describes measurement N)
-        info = table.iloc[number-1]
+        # register row of this measurement: the one with N == number
+        info = metadata.register_row(table, number)
         self.info = info
         file = os.sep.join([folder, date + '%02i' % number + '.txt'])
         # the data are always read from the .txt export; the original file
         # type (.l6s single spectrum, .l6m map, .0 FT-Raman) decides how
         if date + '%02i' % number + '.l6s' in ls:
             data = self.open_spectrum(file, info, data=self.data, dark=dark,
-                                      color=color, label=label)
+                                      color=color, label=label, meta=meta)
         elif date + '%02i' % number + '.l6m' in ls:
             data = self.open_map(file, info, data=self.data, dark=dark,
-                                 color=color, label=label)
+                                 color=color, label=label, meta=meta)
         elif date + '%02i' % number + '.0' in ls:
             data = self.open_spectrum(file, info, data=self.data, dark=dark,
-                                      color=color, label=label)
+                                      color=color, label=label, meta=meta)
         else:
             print('\nError!',
                   'File %s not found in %s.' % (file.split(os.sep)[-1],
@@ -101,7 +129,8 @@ class ProjectIOMixin:
             data = None
         return data
 
-    def open_spectrum(self, file, info, data, dark=False, color=None, label=None):
+    def open_spectrum(self, file, info, data, dark=False, color=None, label=None,
+                      meta=None):
         """Read a two-column text file (x, y) into a :class:`Data` object.
 
         If ``dark`` is a string, the dark spectrum ``<date>/<dark>.txt`` is loaded
@@ -127,19 +156,20 @@ class ProjectIOMixin:
             y_dark = data_dark[:, 1]
             dark_name = dark
             dark_data = Data(dark, x_dark, y_dark, info, data=self.data, dark=True,
-                             color=color, label=label)
+                             color=color, label=label, meta=meta)
             self.data[dark_name] = dark_data
             data = Data(name, x, y, info, data=self.data, dark=False,
-                        color=color, label=label)
+                        color=color, label=label, meta=meta)
         else:
             data = Data(name, x, y, info, data=self.data, dark=dark,
-                        color=color, label=label)
+                        color=color, label=label, meta=meta)
 
         self.data[name] = data
         # self.data[name].type = 'raman'
         return data
 
-    def open_map(self, file, info, data, dark=False, color=None, label=None):
+    def open_map(self, file, info, data, dark=False, color=None, label=None,
+                 meta=None):
         """Read a LabSpec map export (e.g. a z-scan) into one Data per spectrum.
 
         Expected layout: first row = x axis; each following row = one spectrum,
@@ -161,7 +191,7 @@ class ProjectIOMixin:
         for i, y in enumerate(data):
             name = file.split(os.sep)[-1].split('.')[0] + '_' + str(i+1)
             data_map.append(Data(name, x, y, info, data=None, dark=dark,
-                                 color=color, label=label))
+                                 color=color, label=label, meta=meta))
 
             self.data[name] = data_map[-1]
             # data_map.data= self.data
@@ -170,7 +200,8 @@ class ProjectIOMixin:
         return data_map
 
     def open_folder(self, folder, exclude=None, dark_number=None, color=None,
-                    label=None, meas_type='Raman', instrument='jasco'):
+                    label=None, meas_type='Raman', instrument='jasco', meta=None,
+                    pattern=None):
         """Load all measurements of a folder.
 
         Parameters
@@ -185,18 +216,24 @@ class ProjectIOMixin:
             Raman and absorption: plot color (and Raman label) for all spectra.
         meas_type : {'Raman', 'trpl', 'absorption'}
             'Raman'      : every measurement listed in the lab register.
-            'trpl'       : every .txt file named
-                           ``wafer_sample_meastype_tstart_tstop_CCDx_Gx_prognum``,
-                           one Project per file, grouped by wafer (first field of
-                           the name) and gate: G1 = 'short', G3 = 'long', other
-                           gates = 'other'. Files whose name does not follow the
-                           format are skipped. Rescaling factors between the
+            'trpl'       : every .txt file whose name matches ``pattern``
+                           (default ``wafer_sample_meastype_tstart_tstop_CCDx_Gx_prognum``),
+                           one Project per file, grouped by wafer and gate:
+                           G1 = 'short', G3 = 'long', other gates = 'other'.
+                           Files whose name does not match are skipped. Rescaling factors between the
                            short and long series of each sample are stored in
                            ``self.rescale[wafer][sample]``.
             'absorption' : every .txt file (any case), read with
                            :meth:`open_abs`.
         instrument : {'jasco', 'avantes'}, optional
             Absorption only: passed to :meth:`open_abs`. Default 'jasco'.
+        meta : dict, optional
+            Metadata to add or correct in every loaded measurement (see
+            :meth:`open_data`).
+        pattern : str, optional
+            TRPL only: regular expression of the file names, with named
+            groups (default ``metadata.TRPL_PATTERN``). It needs at least
+            'wafer', 'samp' and 'g_width' (the gate number).
 
         Returns
         -------
@@ -215,10 +252,10 @@ class ProjectIOMixin:
                 if number not in exclude:
                     if (number == dark_number):
                         data = self.open_data(folder, dark_number, dark=True,
-                                              color=color, label=label)
+                                              color=color, label=label, meta=meta)
                     else:
                         data = self.open_data(folder, number, dark=False,
-                                              color=color, label=label)
+                                              color=color, label=label, meta=meta)
 
             return data
 
@@ -231,14 +268,15 @@ class ProjectIOMixin:
                 name, ext = os.path.splitext(f)
                 if ext.lower() != '.txt' or name in exclude:
                     continue
-                parts = name.split('_')
-                if len(parts) < 8:            # not wafer_sample_..._Gx_prognum
+                fields = metadata.parse_name(name, pattern, warn=False)
+                if fields is None:            # name does not match the pattern
                     continue
-                wafer, sample = parts[0], parts[0] + '_' + parts[1]
-                gate = {'G1': 'short', 'G3': 'long'}.get(parts[6], 'other')
+                wafer = fields.get('wafer', '')
+                sample = wafer + '_' + fields.get('samp', '')
+                gate = {'1': 'short', '3': 'long'}.get(fields.get('g_width'), 'other')
                 proj = Project()
                 proj.sample = sample
-                proj.open_pl(folder, name, label='sample')
+                proj.open_pl(folder, name, label='sample', meta=meta, pattern=pattern)
                 groups.setdefault(wafer, {'short': {}, 'long': {}, 'other': {}})
                 groups[wafer][gate][name] = proj
 
@@ -270,10 +308,12 @@ class ProjectIOMixin:
             data = None                               # returned if no file is loaded
             for i in names:
                 if i not in exclude:
-                    data = self.open_abs(folder, i, color=color, instrument=instrument)
+                    data = self.open_abs(folder, i, color=color, instrument=instrument,
+                                         meta=meta)
             return data
 
-    def open_abs(self, folder, name, dark=False, color=None, label=None, instrument='jasco'):
+    def open_abs(self, folder, name, dark=False, color=None, label=None, instrument='jasco',
+                 meta=None):
         """Load an absorption spectrum exported by a Jasco or Avantes spectrometer.
 
         The x axis is converted from wavelength (nm) to energy (eV); the
@@ -291,6 +331,9 @@ class ProjectIOMixin:
             'avantes' : ';' separated; the number of header lines is detected
                         with :meth:`read_file` (8 in the AvaSoft exports:
                         title, settings, column names, units, blank line).
+
+        meta : dict, optional
+            Metadata to add or correct (see :meth:`open_data`).
 
         Returns
         -------
@@ -366,7 +409,8 @@ class ProjectIOMixin:
         self.info = info
 
         data = Data(name, x, y, info=self.info, data=None, dark=False,
-                    color=color, label=label, meas_type='absorption')
+                    color=color, label=label, meas_type='absorption', meta=meta)
+        data.meta.setdefault('instrument', instrument)
 
         self.data[name] = data
         self.data[name].type = 'absorption'
@@ -389,13 +433,18 @@ class ProjectIOMixin:
                 return os.path.join(folder, f)
         raise FileNotFoundError(f"{name}.txt (any case) not found in {folder}")
 
-    def open_pl(self, folder, name, dark=False, color=None, label=None):
+    def open_pl(self, folder, name, dark=False, color=None, label=None, meta=None,
+                pattern=None):
         """Load a TRPL (time-resolved PL) file.
 
-        File names must follow
-        ``wafer_sample_mestype_tstart_tstop_CCDx_Gx_prognum`` (exported with the
-        "Multiple column (header)" and "Comma" delimiter options); the parts are
-        parsed into an info dict (``t_start``, ``t_stop``, ``g_width``, ...).
+        File names are parsed with a regular expression (``pattern``, default
+        ``metadata.TRPL_PATTERN``:
+        ``wafer_sample_mestype_tstart_tstop_CCDx_Gx_prognum``; export with the
+        "Multiple column (header)" and "Comma" delimiter options). Its named
+        groups become the info dict (``t_start``, ``t_stop``, ``g_width``,
+        ...; text, as before) and, as numbers, ``Data.meta``. A name
+        that does not match gives a warning and no metadata: give the fields
+        with ``meta``.
 
         - 2 columns : a single spectrum -> one Data.
         - otherwise : one spectrum per gate delay. Row 0 holds the wavelengths
@@ -407,6 +456,11 @@ class ProjectIOMixin:
         ----------
         label : str, optional
             'sample' uses "wafer sample" from the file name as legend label.
+        meta : dict, optional
+            Metadata to add or correct, e.g. ``{'t_start': 100, 't_stop':
+            160, 'g_width': 1}`` for a file with another name.
+        pattern : str, optional
+            Regular expression of the file name, with named groups.
 
         Returns
         -------
@@ -424,44 +478,30 @@ class ProjectIOMixin:
 
         file = os.sep.join([folder]+[name+'.txt'])
         data = pd.read_csv(file)
-        info = None
+
+        # metadata from the file name (text values, as before);
+        # fields given in meta are added as text too, so that the methods
+        # reading info (plot_lifetime, merge_short_long, ...) find them
+        info = metadata.trpl_info(name, folder, pattern)
+        info.update({k: str(v) for k, v in (meta or {}).items()})
+        if 'samp' in info and 'position' not in info:
+            info['position'] = info['samp'].split('#')[-1]
 
         if label == 'sample':
-            try:
+            if 'wafer' in info and 'samp' in info:
+                label = info['wafer'] + ' ' + info['samp']
+            else:
                 parts = name.split('_')
-                label = parts[0] + ' ' + parts[1]
-            except Exception as e:
-                label = None
-                print("Error occurred in method", colored('open_pl', 'red',
-                                                          attrs=['bold']), "file", colored(f"'{name}'", 'cyan',
-                                                                                           attrs=['bold']), ":", type(e), e)
-        else:
-            label = label
+                label = parts[0] + ' ' + parts[1] if len(parts) > 1 else None
 
         # two columns: single spectrum; otherwise one spectrum per gate delay
         if data.shape[1] == 2:
             data = data.to_numpy()
             x = data[:, 0]
             y = data[:, 1]
-            info = {}
-            try:
-                info['wafer'] = name.split('_')[0]
-                info['samp'] = name.split('_')[1]
-                info['mes_type'] = name.split('_')[2]
-                info['t_start'] = name.split('_')[3]
-                info['t_stop'] = name.split('_')[4]
-                info['CCD'] = name.split('_')[5]
-                info['g_width'] = name.split('_')[6].split('G')[-1]
-                info['prog_num'] = name.split('_')[-1]
-                info['data'] = folder.split('/')[0]
-                info['position'] = info['samp'].split('#')[-1]
-            except Exception as e:
-                print("Error occurred in method", colored('open_pl', 'red',
-                                                          attrs=['bold']), "file", colored(f"'{name}'", 'cyan',
-                                                                                           attrs=['bold']), ":", type(e), e)
 
             data = Data(name, x, y, info=info, data=self.data, dark=False,
-                        color=color, label=label)
+                        color=color, label=label, meas_type='trpl', meta=meta)
 
             self.data[name] = data
             self.data[name].type = 'trpl'
@@ -473,28 +513,13 @@ class ProjectIOMixin:
             x = data.iloc[0, 2:-1]
             y = [0] * (data.shape[0] - 2)
             data_map = []
-            info = {}
-            try:
-                info['wafer'] = name.split('_')[0]
-                info['samp'] = name.split('_')[1]
-                info['mes_type'] = name.split('_')[2]
-                info['t_start'] = name.split('_')[3]
-                info['t_stop'] = name.split('_')[4]
-                info['CCD'] = name.split('_')[5]
-                info['g_width'] = name.split('_')[6].split('G')[-1]
-                info['prog_num'] = name.split('_')[-1]
-                info['data'] = folder.split('/')[0]
-                info['position'] = info['samp'].split('#')[-1]
-            except Exception as e:
-                print("Error occurred in method", colored('open_pl', 'red',
-                                                          attrs=['bold']), "file", colored(f"'{name}'", 'cyan',
-                                                                                           attrs=['bold']), ":", type(e), e)
 
             for i in range(data.shape[0]-2):
                 y[i] = data.iloc[i+2, 2:-1]
                 name = file.split(os.sep)[-1].split('.')[0] + '_' + str(i+1)
                 data_map.append(Data(name, x, y[i], info=info, data={},
-                                     dark=False, color=color, label=label))
+                                     dark=False, color=color, label=label,
+                                     meas_type='trpl', meta=meta))
                 self.data[name] = data_map[-1]
                 data_map[-1].data = {name: self.data[name]}
                 self.data[name].type = 'trpl'
@@ -664,7 +689,7 @@ class ProjectIOMixin:
         return report
 
     def open_file(self, file, meas_type='generic', ecc=None, color=None,
-                  label=None, verbose=True, sort=False, **overrides):
+                  label=None, verbose=True, sort=False, meta=None, **overrides):
         """Open any text/CSV data file as Data object(s).
 
         The structure is detected with :meth:`read_file`; the numbers are read
@@ -706,6 +731,9 @@ class ProjectIOMixin:
             Note: with decreasing x (e.g. Jasco exports, eV axes),
             :meth:`Data.integrate` returns a negative value; use sort=True or
             :meth:`Data.integrate_window`, which takes the absolute value.
+        meta : dict, optional
+            Metadata to add (standard names, see
+            :mod:`spectroscopy_analysis.metadata`), e.g. ``{'sample': 'A'}``.
         **overrides
             Correct any detected value of the report, e.g. ``header_lines=3``,
             ``delimiter=';'``, ``decimal=','``, ``layout='multi'``,
@@ -854,7 +882,7 @@ class ProjectIOMixin:
             name = base if len(spectra) == 1 else f'{base}_{col_label}'
             d = Data(name, xs, ys, info=dict(info), data=self.data,
                      color=color, label=label if len(spectra) == 1 else col_label,
-                     meas_type=meas_type, ecc=ecc)
+                     meas_type=meas_type, ecc=ecc, meta=meta)
             d.type = 'data'                         # already processed: no dark
             for k, v in axes.items():
                 setattr(d, k, v)

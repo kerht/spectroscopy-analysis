@@ -101,7 +101,7 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
         self.y_label = None
 
         # ---- Metadata
-        # self.info: the original metadata, as in version 1.0.0 (register row,
+        # self.info: the original metadata, as before (register row,
         # or a Series built from the TRPL / header dict).
         # self.meta: the same, with standard keys (see the metadata module).
         from_frame = isinstance(info, pd.DataFrame)
@@ -122,7 +122,7 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
             detected['meas_type'] = 'trpl'          # merged TRPL series
 
         # register row: the fields become attributes (d.n, d.sample, d.ecc,
-        # d.ndfilt, ...) with the values of the register, as in version 1.0.0
+        # d.ndfilt, ...) with the values of the register, as before
         if detected.get('source') == 'register':
             where = metadata.register_columns(info.index)
             for key, w in where.items():
@@ -145,7 +145,7 @@ class Data(DataPlotMixin, DataRamanMixin, DataPLMixin, DataTRPLMixin, DataFitMix
         if ecc is not None:
             user['ecc'] = ecc
         self.meta = {**detected, **user}
-        if user:
+        if meta:
             self.meta['source'] = (detected.get('source', '') + '+user').lstrip('+')
         for key, value in user.items():
             if key in metadata.REGISTER_ALIASES and key != 'meas_type':

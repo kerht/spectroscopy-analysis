@@ -19,6 +19,7 @@ constants  material constants (4H-SiC, LOPC fit), default integration window
 units      cm-1 <-> nm <-> eV conversions
 models     lmfit model classes (gauss, voigt, baseline_line, ...)
 style      colour/marker cycles, apply_style()
+metadata   standard metadata: register columns by name, file-name patterns
 data       Data: one spectrum, with the methods of every technique
 project    Project: a collection of measurements, with the loaders
 raman, pl, trpl, fitting, plotting, io
@@ -35,6 +36,7 @@ from .units import cmtoev, cmtonm, evtocm, evtonm, nmtoev, nmtocm
 from .models import (gauss, lorentz, voigt, baseline_line, constant, poly_degree,
                      baseline_poly, exp, as_model)
 from .utils import moving_average
+from . import metadata
 from .style import apply_style
 from .raman import lopc
 from .trpl import rescale_factor, plot_tau, plot_tau_hist, merge_short_long

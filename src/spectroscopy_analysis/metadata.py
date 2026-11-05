@@ -92,8 +92,8 @@ REGISTER_ALIASES = {
 }
 
 # Column order of the original registers. Used only as a fallback, when a
-# register has one of these layouts (recognised by its third column, as in
-# version 1.0.0) and a field is not found by name.
+# register has one of these layouts (recognised by its third column, as in earlier
+# versions) and a field is not found by name.
 _LEGACY_LAYOUTS = {
     'ndfilt': ('Raman', 'LabRAM',
                ['n', 'sample', 'ndfilt', 'acqt', 'acc', 'det', 'obj', 'grat',
@@ -257,7 +257,7 @@ def register_row(table, number):
 
 # ------------------------------------------------------------------ file name
 #: Default TRPL file-name pattern: wafer_sample_meastype_tstart_tstop_CCDx_Gx_prognum
-#: (extra fields before prognum are allowed, as in version 1.0.0).
+#: (extra fields before prognum are allowed, as before).
 #: Named groups become fields; 'samp' is the sample, 'g_width' the gate number.
 TRPL_PATTERN = (r'^(?P<wafer>[^_]+)_(?P<samp>[^_]+)_(?P<mes_type>[^_]+)'
                 r'_(?P<t_start>[^_]+)_(?P<t_stop>[^_]+)_(?P<CCD>[^_]+)'
@@ -280,7 +280,7 @@ def parse_name(name, pattern=None, warn=True):
     Returns
     -------
     dict or None
-        ``{group: text}``, values as text like in version 1.0.0; None if the
+        ``{group: text}``, values as text, as before; None if the
         name does not match.
     """
     pattern = TRPL_PATTERN if pattern is None else pattern
@@ -295,7 +295,7 @@ def parse_name(name, pattern=None, warn=True):
 
 
 def trpl_info(name, folder='', pattern=None):
-    """The ``info`` dict of a TRPL file, as built by version 1.0.0.
+    """The ``info`` dict of a TRPL file, as built by earlier versions.
 
     Keys: the groups of the pattern (wafer, samp, mes_type, t_start, t_stop,
     CCD, g_width, prog_num), plus 'data' (first part of the folder path) and
